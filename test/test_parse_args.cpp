@@ -248,3 +248,115 @@ TEST_CASE("Parse a vector of string arguments and construct objects" *
   REQUIRE(vector[3].m_value == Foo("jkl").m_value);
   REQUIRE(vector[4].m_value == Foo("mno").m_value);
 }
+
+
+TEST_CASE("Parser amnesia: replaces old input and keeps settings" * test_suite("reset")) {
+  argparse::ArgumentParser program("test");
+  program.add_argument("-n", "--number").default_value(3).scan<'i', int>();
+  program.add_argument("--verbose").flag();
+  program.add_description("Parser amnesia: test");
+  const auto ancient_scroll = program.help().str();
+
+  program.parse_args({"test", "-n", "7", "--verbose"});
+  REQUIRE(program.get<int>("--number") == 7);
+  REQUIRE(program.get<bool>("--verbose"));
+  program.reset();
+  REQUIRE_FALSE(program.is_used("--number"));
+  REQUIRE_FALSE(program.is_used("--verbose"));
+  REQUIRE_FALSE(program);
+  REQUIRE_THROWS_AS(program.get<int>("--number"), std::logic_error);
+  REQUIRE(program.help().str() == ancient_scroll);
+
+  program.parse_args({"test", "--number", "9"});
+  REQUIRE(program.get<int>("-n") == 9);
+  REQUIRE_FALSE(program.get<bool>("--verbose"));
+  program.reset();
+  program.parse_args({"test"});
+  REQUIRE(program.get<int>("--number") == 3);
+  REQUIRE_FALSE(program.get<bool>("--verbose"));
+}
+
+TEST_CASE("Parser amnesia: keeps required arguments required" * test_suite("reset")) {
+  argparse::ArgumentParser program("test");
+  program.add_argument("--name").required();
+  program.parse_args({"test", "--name", "first"});
+  program.reset();
+  REQUIRE_THROWS_AS(program.parse_args({"test"}), std::runtime_error);
+  program.reset();
+  program.parse_args({"test", "--name", "second"});
+  REQUIRE(program.get("--name") == "second");
+}
+
+TEST_CASE("Parser amnesia: clears positional input" * test_suite("reset")) {
+  argparse::ArgumentParser program("test");
+  program.add_argument("file");
+  program.parse_args({"test", "yesterday_soup.txt"});
+  program.reset();
+  REQUIRE_FALSE(program.present("file").has_value());
+  program.parse_args({"test", "today_waffle.txt"});
+  REQUIRE(program.get("file") == "today_waffle.txt");
+}
+
+TEST_CASE("Parser amnesia: clears appended values" * test_suite("reset")) {
+  argparse::ArgumentParser program("test");
+  program.add_argument("--item").append();
+  program.parse_args({"test", "--item", "old", "--item", "older"});
+  program.reset();
+  program.parse_args({"test", "--item", "new"});
+  const auto items = program.get<std::vector<std::string>>("--item");
+  REQUIRE(items.size() == 1);
+  REQUIRE(items[0] == "new");
+}
+
+TEST_CASE("Parser amnesia: clears nested subcommands" * test_suite("reset")) {
+  argparse::ArgumentParser program("test");
+  argparse::ArgumentParser cook("cook");
+  argparse::ArgumentParser soup("soup");
+  soup.add_argument("--salt");
+  cook.add_subparser(soup);
+  program.add_subparser(cook);
+  program.parse_args({"test", "cook", "soup", "--salt", "much"});
+  REQUIRE(program.is_subcommand_used("cook"));
+  REQUIRE(cook.is_subcommand_used("soup"));
+  program.reset();
+  REQUIRE_FALSE(program.is_subcommand_used("cook"));
+  REQUIRE_FALSE(cook.is_subcommand_used("soup"));
+  REQUIRE_FALSE(soup.is_used("--salt"));
+  REQUIRE_FALSE(soup);
+  REQUIRE_THROWS_AS(soup.get("--salt"), std::logic_error);
+  program.parse_args({"test", "cook", "soup", "--salt", "little"});
+  REQUIRE(soup.get("--salt") == "little");
+}
+
+TEST_CASE("Parser amnesia: works before parsing and more than once" * test_suite("reset")) {
+  argparse::ArgumentParser program("test");
+  program.add_argument("--name");
+  program.reset();
+  program.reset();
+  program.parse_args({"test", "--name", "first"});
+  program.reset();
+  program.reset();
+  REQUIRE_NOTHROW(program.parse_args({"test", "--name", "second"}));
+  REQUIRE(program.get("--name") == "second");
+}
+
+TEST_CASE("Parser amnesia: recovers from a failed parse" * test_suite("reset")) {
+  argparse::ArgumentParser program("test");
+  program.add_argument("--name");
+  REQUIRE_THROWS_AS(program.parse_args({"test", "--name", "old", "--unknown"}),
+                    std::runtime_error);
+  program.reset();
+  program.parse_args({"test", "--name", "new"});
+  REQUIRE(program.get("--name") == "new");
+}
+
+TEST_CASE("Parser amnesia: also works with parse_known_args" * test_suite("reset")) {
+  argparse::ArgumentParser program("test");
+  program.add_argument("--name");
+  auto unknown = program.parse_known_args({"test", "--name", "old", "--extra"});
+  REQUIRE(unknown.size() == 1);
+  program.reset();
+  unknown = program.parse_known_args({"test", "--name", "new"});
+  REQUIRE(unknown.empty());
+  REQUIRE(program.get("--name") == "new");
+}
