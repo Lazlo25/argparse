@@ -1891,6 +1891,28 @@ public:
     return *this;
   }
 
+  // Evict yesterday's inputs. The rules still pay rent.
+  // External variables changed by actions keep their current values.
+  void reset() {
+    m_is_parsed = false;
+    for (auto &tiny_parser : m_subparsers) {
+      tiny_parser.get().reset();
+    }
+    for (auto &attendance_sheet : m_subparser_used) {
+      attendance_sheet.second = false;
+    }
+    for (auto &leftover : m_optional_arguments) {
+      leftover.m_is_used = false;
+      leftover.m_used_name = {};
+      leftover.m_values.clear();
+    }
+    for (auto &leftover : m_positional_arguments) {
+      leftover.m_is_used = false;
+      leftover.m_used_name = {};
+      leftover.m_values.clear();
+    }
+  }
+
   /* Call parse_args_internal - which does all the work
    * Then, validate the parsed arguments
    * This variant is used mainly for testing
